@@ -39,7 +39,7 @@ def download_file(url):
 def load_models():
     global recipe_vectors_norm, ingredient_map, df_info, ingredient_columns
     
-    # --- Your 3 Hugging Face URLs are now included ---
+    # --- Your 3 Hugging Face URLs are included ---
     VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors_norm.pkl"
     COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
     INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
@@ -158,10 +158,7 @@ def get_recipes_api():
         app.logger.error(f"--- CRASH IN get_recipes_api ---: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
-# --- 8. NEW ENDPOINT FOR FETCHING PROCEDURES ---
-
-# !! PASTE YOUR SPOONACULAR API KEY HERE !!
-SPOONACULAR_API_KEY = "c27a72be1f034a60aef05f59a42c7468"
+# --- 8. NEW ENDPOINT (Using TheMealDB) ---
 
 @app.route('/get_procedure', methods=['POST'])
 def get_procedure_api():
@@ -172,33 +169,25 @@ def get_procedure_api():
         if not recipe_title:
             return jsonify({"error": "No title provided"}), 400
 
-        # 1. Call Spoonacular API to find the recipe
-        search_url = "https://api.spoonacular.com/recipes/complexSearch"
-        params = {
-            'apiKey': SPOONACULAR_API_KEY,
-            'query': recipe_title,
-            'number': 1, # Get just the top match
-            'addRecipeInformation': True # This includes instructions!
-        }
-        response = requests.get(search_url, params=params)
-        response.raise_for_status() # Will error if API call fails
+        # 1. Call TheMealDB API to find the recipe
+        # This API is 100% free and needs no key
+        search_url = f"https://www.themealdb.com/api/json/v1/1/search.php?s={recipe_title}"
+        
+        response = requests.get(search_url)
+        response.raise_for_status()
         
         search_results = response.json()
         
-        if not search_results.get('results'):
-            app.logger.error(f"Spoonacular found no results for title: {recipe_title}")
+        if not search_results.get('meals'):
+            app.logger.error(f"TheMealDB found no results for title: {recipe_title}")
             return jsonify({"instructions": "Sorry, procedure not found."})
 
         # 2. Extract the instructions and image
-        recipe = search_results['results'][0]
-        instructions = recipe.get('instructions', 'No instructions provided.')
-        image_url = recipe.get('image', '')
+        recipe = search_results['meals'][0] # Get the first match
+        instructions = recipe.get('strInstructions', 'No instructions provided.')
+        image_url = recipe.get('strMealThumb', '')
         
-        # This cleans up the HTML from the instructions
-        if instructions:
-            instructions = re.sub(r'<[^>]+>', '', instructions) 
-        
-        app.logger.info("Successfully fetched procedure from Spoonacular.")
+        app.logger.info("Successfully fetched procedure from TheMealDB.")
         
         # 3. Send the instructions back to the frontend
         return jsonify({
