@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale-1.0">
     <title>Smart Recipe Finder</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 40px auto; background: #f9f9f9; color: #333; }
@@ -13,10 +13,13 @@
         button:hover { background-color: #c9302c; }
         #results { margin-top: 30px; }
         #loading { text-align: center; font-size: 18px; display: none; }
+        
         .recipe { background: #fff; border: 1px solid #eee; padding: 20px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
-        .recipe h2 { margin-top: 0; color: #0275d8; }
-        .recipe h3 { margin-top: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        .recipe p { white-space: pre-wrap; line-height: 1.6; }
+        .recipe h2 { margin-top: 0; color: #0275d8; cursor: pointer; } /* Made title clickable */
+        .recipe h2:hover { text-decoration: underline; }
+        .recipe-details { display: none; /* Hidden by default */ margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; }
+        .recipe-details p { white-space: pre-wrap; line-height: 1.6; }
+        .recipe-details img { max-width: 100%; border-radius: 5px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -38,6 +41,7 @@
         const resultsDiv = document.getElementById('results');
         const loadingDiv = document.getElementById('loading');
 
+        // Main function to get the recipe list
         findButton.addEventListener('click', async () => {
             const ingredients = ingredientsInput.value;
             if (!ingredients) { alert('Please enter some ingredients!'); return; }
@@ -46,7 +50,7 @@
             resultsDiv.innerHTML = '';
 
             try {
-                // This sends the data to our running Flask app
+                // This calls your ML model endpoint
                 const response = await fetch('/get_recipes', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -66,14 +70,22 @@
                     return;
                 }
 
-                recipes.forEach(recipe => {
+                recipes.forEach((recipe, index) => {
                     const recipeDiv = document.createElement('div');
                     recipeDiv.className = 'recipe';
                     
-                    // Format the recipe info from your CSV
+                    // We give each recipe a unique ID
+                    const recipeId = `recipe-${index}`;
+                    
                     recipeDiv.innerHTML = `
-                        <h2>${recipe.title} (Match: ${Math.round(recipe.score * 100)}%)</h2>
+                        <h2 data-title="${recipe.title}" onclick="fetchProcedure('${recipeId}', this)">
+                            ${recipe.title} (Match: ${Math.round(recipe.score * 100)}%)
+                        </h2>
                         <p><strong>Rating:</strong> ${recipe.rating} | <strong>Calories:</strong> ${recipe.calories} | <strong>Fat:</strong> ${recipe.fat} | <strong>Protein:</strong> ${recipe.protein}</p>
+                        
+                        <div id="${recipeId}" class="recipe-details">
+                            <p>Loading instructions...</p>
+                        </div>
                     `;
                     resultsDiv.appendChild(recipeDiv);
                 });
@@ -84,6 +96,48 @@
                 console.error('Error:', error);
             }
         });
+
+        // --- NEW FUNCTION ---
+        // This is called when a user clicks a recipe title
+        async function fetchProcedure(recipeId, element) {
+            const detailsDiv = document.getElementById(recipeId);
+
+            // Toggle display: if already open, close it.
+            if (detailsDiv.style.display === 'block') {
+                detailsDiv.style.display = 'none';
+                return;
+            }
+            
+            // Show the "Loading..." message
+            detailsDiv.style.display = 'block';
+            detailsDiv.innerHTML = '<p>Loading details...</p>';
+
+            const title = element.getAttribute('data-title');
+
+            try {
+                // This calls your NEW /get_procedure endpoint
+                const response = await fetch('/get_procedure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: title })
+                });
+                
+                if (!response.ok) throw new Error('Could not load procedure.');
+                
+                const data = await response.json();
+                
+                // Display the new info from Spoonacular
+                detailsDiv.innerHTML = `
+                    <img src="${data.image_url}" alt="${title}">
+                    <h3>Instructions:</h3>
+                    <p>${data.instructions}</p>
+                `;
+
+            } catch (error) {
+                detailsDiv.innerHTML = `<p>Sorry, could not load instructions.</p>`;
+                console.error(error);
+            }
+        }
     </script>
 </body>
 </html>
