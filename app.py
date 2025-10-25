@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.stem import WordNetLemmatizer
 import re
 import os
-import requests
+import requests  # We need this
 import io
 import nltk
 
@@ -15,19 +15,17 @@ import nltk
 app = Flask(__name__)
 
 # --- 2. Define Global Variables ---
-# We set them to None. They will be loaded by our function.
 recipe_vectors = None
 ingredient_map = None
 df_info = None
 ingredient_columns = None
 
-# --- 3. GDrive Downloader Function ---
-def download_gdrive_file(url):
+# --- 3. Downloader Function ---
+# This simple downloader works for Hugging Face
+def download_file(url):
     try:
-        file_id = url.split('/d/')[1].split('/')[0]
-        download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         session = requests.Session()
-        response = session.get(download_url, stream=True)
+        response = session.get(url, stream=True)
         response.raise_for_status() # Will error if download fails
         return io.BytesIO(response.content)
     except Exception as e:
@@ -39,10 +37,10 @@ def load_models():
     # Tell this function to modify the GLOBAL variables
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
     
-    # --- !! PASTE YOUR 3 GOOGLE DRIVE LINKS HERE !! ---
-    VECTORS_URL = "https://drive.google.com/file/d/1DKHgVycWj9KMsKfBpMf-rzu_hEtS41fV/view?usp=drivesdk"
-    COLUMNS_URL = "https://drive.google.com/file/d/1HtQai-oIxKkSDLJx6C853Ww5ZPcSXGIp/view?usp=drivesdk"
-    INFO_URL = "https://drive.google.com/file/d/1UB_mcEPOY79KcLughKTo5EJEjuFPcrB4/view?usp=drivesdk"
+    # --- !! PASTE YOUR 3 HUGGING FACE URLS HERE !! ---
+    VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors.pkl"
+    COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
+    INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
 
     try:
         # --- NLTK Fix for Render ---
@@ -53,19 +51,19 @@ def load_models():
         print("NLTK data downloaded.")
         # ---------------------------
         
-        print("Downloading ML files from Google Drive...")
-        
-        vectors_file = download_gdrive_file(VECTORS_URL)
-        columns_file = download_gdrive_file(COLUMNS_URL)
-        info_file = download_gdrive_file(INFO_URL)
-        
-        if not all([vectors_file, columns_file, info_file]):
-            raise FileNotFoundError("Failed to download one or more files from GDrive.")
+        # --- Download all 3 files from Hugging Face ---
+        print("Downloading all 3 data files from Hugging Face...")
+        vectors_file = download_file(VECTORS_URL)
+        columns_file = download_file(COLUMNS_URL)
+        info_file    = download_file(INFO_URL)
 
-        print("Files downloaded. Loading models...")
-        recipe_vectors = joblib.load(vectors_file)
+        if not all([vectors_file, columns_file, info_file]):
+            raise FileNotFoundError("Failed to download one or more files from Hugging Face.")
+        
+        print("All files downloaded. Loading models...")
+        recipe_vectors     = joblib.load(vectors_file)
         ingredient_columns = joblib.load(columns_file)
-        df_info = pd.read_csv(info_file).fillna('N/A')
+        df_info            = pd.read_csv(info_file).fillna('N/A')
         
         # Create the quick-lookup map
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
@@ -111,48 +109,36 @@ def home():
 
 @app.route('/get_recipes', methods=['POST'])
 def get_recipes_api():
-    # Check if models are loaded
     if recipe_vectors is None or ingredient_map is None:
         return jsonify({"error": "Models are not loaded yet. Please try again in a moment."}), 503
-        
     try:
         data = request.json
         user_ingredients_str = data.get('ingredients', '')
-        
         user_words = clean_user_input(user_ingredients_str)
-        
         user_vector = np.zeros((1, len(ingredient_map)))
-        
         found_ingredients = []
         for word in user_words:
             if word in ingredient_map:
                 index = ingredient_map[word]
                 user_vector[0, index] = 1.0
                 found_ingredients.append(word)
-
         if not found_ingredients:
             return jsonify([]) 
-
         similarity_scores = cosine_similarity(user_vector, recipe_vectors)
         scores = similarity_scores[0]
-        
         top_matches_indices = scores.argsort()[-5:][::-1]
-
         results = []
         for index in top_matches_indices:
             if scores[index] > 0.05: 
                 recipe_info = df_info.iloc[index].to_dict()
                 recipe_info['score'] = float(scores[index])
                 results.append(recipe_info)
-                
         return jsonify(results)
-        
     except Exception as e:
         print(f"Error in get_recipes_api: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
 # --- 8. Run the App (for local testing only) ---
 if __name__ == '__main__':
-    # This block is NOT run by Gunicorn, only when you run "python app.py"
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
