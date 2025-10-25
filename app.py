@@ -3,25 +3,23 @@ from flask import Flask, request, jsonify, render_template
 import joblib
 import pandas as pd
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import normalize # <-- NEW IMPORT
+from sklearn.preprocessing import normalize # Still needed for the user vector
 from nltk.stem import WordNetLemmatizer
 import re
 import os
 import requests
 import io
 import nltk
-import logging # Import the logging library
+import logging 
 
 # --- 1. Initialize App ---
 app = Flask(__name__)
-# Set up better logging
 gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(logging.INFO)
 
 # --- 2. Define Global Variables ---
-recipe_vectors = None
+recipe_vectors_norm = None # Renamed
 ingredient_map = None
 df_info = None
 ingredient_columns = None
@@ -39,10 +37,11 @@ def download_file(url):
 
 # --- 4. Model Loading Function ---
 def load_models():
-    global recipe_vectors, ingredient_map, df_info, ingredient_columns
+    global recipe_vectors_norm, ingredient_map, df_info, ingredient_columns
     
     # --- !! PASTE YOUR 3 HUGGING FACE URLS HERE !! ---
-    VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors.pkl"
+    # --- !! VECTORS_URL must be the *new* file !! ---
+    VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors_norm.pkl"
     COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
     INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
 
@@ -53,7 +52,6 @@ def load_models():
         nltk.download('omw-1.4', download_dir='/tmp/nltk_data')
         nltk.data.path.append('/tmp/nltk_data')
         app.logger.info("NLTK data downloaded.")
-        # ---------------------------
         
         app.logger.info("Downloading all 3 data files from Hugging Face...")
         vectors_file = download_file(VECTORS_URL)
@@ -64,14 +62,15 @@ def load_models():
             raise FileNotFoundError("Failed to download one or more files from Hugging Face.")
         
         app.logger.info("All files downloaded. Loading models...")
-        recipe_vectors     = joblib.load(vectors_file)
-        ingredient_columns = joblib.load(columns_file)
-        df_info            = pd.read_csv(info_file).fillna('N/A')
+        # Load the new pre-normalized file
+        recipe_vectors_norm = joblib.load(vectors_file) 
+        ingredient_columns  = joblib.load(columns_file)
+        df_info             = pd.read_csv(info_file).fillna('N/A')
         
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
         
         app.logger.info("All ML/data files loaded successfully!")
-        app.logger.info(f"Recipe vectors shape: {recipe_vectors.shape}")
+        app.logger.info(f"Recipe vectors shape: {recipe_vectors_norm.shape}")
         app.logger.info(f"Recipe info shape: {df_info.shape}")
         
     except Exception as e:
@@ -102,7 +101,6 @@ app.logger.info("Starting app, calling load_models()...")
 load_models()
 
 # --- 7. Define App Routes (Webpages) ---
-
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -110,7 +108,7 @@ def home():
 @app.route('/get_recipes', methods=['POST'])
 def get_recipes_api():
     app.logger.info("Received request for /get_recipes")
-    if recipe_vectors is None or ingredient_map is None:
+    if recipe_vectors_norm is None or ingredient_map is None:
         app.logger.error("Models are not loaded, returning 503 error.")
         return jsonify({"error": "Models are not loaded yet. Please try again in a moment."}), 503
     try:
@@ -122,7 +120,6 @@ def get_recipes_api():
         app.logger.info(f"Cleaned words: {user_words}") 
         
         user_vector = np.zeros((1, len(ingredient_map)))
-        
         found_ingredients = []
         for word in user_words:
             if word in ingredient_map:
@@ -134,20 +131,16 @@ def get_recipes_api():
         if not found_ingredients:
             return jsonify([]) 
 
-        # --- REPLACED CALCULATION ---
+        # --- FINAL, MEMORY-EFFICIENT CALCULATION ---
         app.logger.info("--- Normalizing user_vector... ---")
         user_vector_norm = normalize(user_vector)
         
-        app.logger.info("--- Normalizing recipe_vectors... (This may take time) ---")
-        # This is the memory-intensive step.
-        # We do this instead of cosine_similarity to avoid a crash.
-        recipe_vectors_norm = normalize(recipe_vectors) 
-        
         app.logger.info("--- Calculating dot product... ---")
-        similarity_scores = np.dot(user_vector_norm, recipe_vectors_norm.T)
+        # No more crashing! We just multiply the user vector by the pre-normalized vectors
+        similarity_scores = np.dot(user_vector_norm, recipe_vectors_norm.T) 
         
         app.logger.info("--- Calculation FINISHED. ---")
-        # --- END REPLACED CALCULATION ---
+        # --- END CALCULATION ---
 
         scores = similarity_scores[0]
         top_matches_indices = scores.argsort()[-5:][::-1]
