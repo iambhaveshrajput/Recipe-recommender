@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.stem import WordNetLemmatizer
 import re
 import os
-import requests  # We need this
+import requests
 import io
 import nltk
 import logging # Import the logging library
@@ -26,12 +26,11 @@ df_info = None
 ingredient_columns = None
 
 # --- 3. Downloader Function ---
-# This simple downloader works for Hugging Face
 def download_file(url):
     try:
         session = requests.Session()
         response = session.get(url, stream=True)
-        response.raise_for_status() # Will error if download fails
+        response.raise_for_status() 
         return io.BytesIO(response.content)
     except Exception as e:
         app.logger.error(f"Error downloading {url}: {e}")
@@ -39,10 +38,9 @@ def download_file(url):
 
 # --- 4. Model Loading Function ---
 def load_models():
-    # Tell this function to modify the GLOBAL variables
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
     
-    # --- !! PASTE YOUR 3 HUGGING FACE URLS HERE !! ---
+    # --- Your 3 Hugging Face URLs are now included ---
     VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors.pkl"
     COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
     INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
@@ -56,7 +54,6 @@ def load_models():
         app.logger.info("NLTK data downloaded.")
         # ---------------------------
         
-        # --- Download all 3 files from Hugging Face ---
         app.logger.info("Downloading all 3 data files from Hugging Face...")
         vectors_file = download_file(VECTORS_URL)
         columns_file = download_file(COLUMNS_URL)
@@ -70,7 +67,6 @@ def load_models():
         ingredient_columns = joblib.load(columns_file)
         df_info            = pd.read_csv(info_file).fillna('N/A')
         
-        # Create the quick-lookup map
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
         
         app.logger.info("All ML/data files loaded successfully!")
@@ -88,7 +84,7 @@ stop_words = set([
 ])
 
 def clean_user_input(text):
-    lemmatizer = WordNetLemmatizer()  # <-- This fix is included
+    lemmatizer = WordNetLemmatizer()
     text = text.lower()
     text = re.sub(r'[^a-z\s,]', '', text) 
     words = re.split(r'[\s,]+', text)
@@ -112,17 +108,17 @@ def home():
 
 @app.route('/get_recipes', methods=['POST'])
 def get_recipes_api():
-    app.logger.info("Received request for /get_recipes") # New log
+    app.logger.info("Received request for /get_recipes")
     if recipe_vectors is None or ingredient_map is None:
         app.logger.error("Models are not loaded, returning 503 error.")
         return jsonify({"error": "Models are not loaded yet. Please try again in a moment."}), 503
     try:
         data = request.json
         user_ingredients_str = data.get('ingredients', '')
-        app.logger.info(f"Input ingredients: {user_ingredients_str}") # New log
+        app.logger.info(f"Input ingredients: {user_ingredients_str}") 
         
         user_words = clean_user_input(user_ingredients_str)
-        app.logger.info(f"Cleaned words: {user_words}") # New log
+        app.logger.info(f"Cleaned words: {user_words}") 
         
         user_vector = np.zeros((1, len(ingredient_map)))
         
@@ -133,11 +129,16 @@ def get_recipes_api():
                 user_vector[0, index] = 1.0
                 found_ingredients.append(word)
         
-        app.logger.info(f"Found ingredients in database: {found_ingredients}") # New log
+        app.logger.info(f"Found ingredients in database: {found_ingredients}") 
         if not found_ingredients:
             return jsonify([]) 
 
+        # --- NEW LOGGING ---
+        app.logger.info("--- Starting cosine_similarity calculation... ---")
         similarity_scores = cosine_similarity(user_vector, recipe_vectors)
+        app.logger.info("--- cosine_similarity calculation FINISHED. ---")
+        # --- END NEW LOGGING ---
+
         scores = similarity_scores[0]
         top_matches_indices = scores.argsort()[-5:][::-1]
 
@@ -148,11 +149,10 @@ def get_recipes_api():
                 recipe_info['score'] = float(scores[index])
                 results.append(recipe_info)
         
-        app.logger.info(f"Returning {len(results)} recipes.") # New log
+        app.logger.info(f"Returning {len(results)} recipes.") 
         return jsonify(results)
         
     except Exception as e:
-        # This will now DEFINITELY show up in the logs
         app.logger.error(f"--- CRASH IN get_recipes_api ---: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
