@@ -38,11 +38,12 @@ def load_models():
     INFO_URL = "https://drive.google.com/file/d/1UB_mcEPOY79KcLughKTo5EJEjuFPcrB4/view?usp=drivesdk"
 
     try:
-        print("Downloading NLTK data...")
-        nltk.download('wordnet')
-        nltk.download('omw-1.4')
+        print("Downloading NLTK data to /tmp/nltk_data...")
+        nltk.download('wordnet', download_dir='/tmp/nltk_data')
+        nltk.download('omw-1.4', download_dir='/tmp/nltk_data')
+        nltk.data.path.append('/tmp/nltk_data')
         print("NLTK data downloaded.")
-        
+
         print("Downloading ML files from Google Drive...")
         
         vectors_file = download_gdrive_file(VECTORS_URL)
