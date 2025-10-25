@@ -4,6 +4,7 @@ import joblib
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import normalize # <-- NEW IMPORT
 from nltk.stem import WordNetLemmatizer
 import re
 import os
@@ -40,7 +41,7 @@ def download_file(url):
 def load_models():
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
     
-    # --- Your 3 Hugging Face URLs are now included ---
+    # --- !! PASTE YOUR 3 HUGGING FACE URLS HERE !! ---
     VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors.pkl"
     COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
     INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
@@ -133,11 +134,20 @@ def get_recipes_api():
         if not found_ingredients:
             return jsonify([]) 
 
-        # --- NEW LOGGING ---
-        app.logger.info("--- Starting cosine_similarity calculation... ---")
-        similarity_scores = cosine_similarity(user_vector, recipe_vectors)
-        app.logger.info("--- cosine_similarity calculation FINISHED. ---")
-        # --- END NEW LOGGING ---
+        # --- REPLACED CALCULATION ---
+        app.logger.info("--- Normalizing user_vector... ---")
+        user_vector_norm = normalize(user_vector)
+        
+        app.logger.info("--- Normalizing recipe_vectors... (This may take time) ---")
+        # This is the memory-intensive step.
+        # We do this instead of cosine_similarity to avoid a crash.
+        recipe_vectors_norm = normalize(recipe_vectors) 
+        
+        app.logger.info("--- Calculating dot product... ---")
+        similarity_scores = np.dot(user_vector_norm, recipe_vectors_norm.T)
+        
+        app.logger.info("--- Calculation FINISHED. ---")
+        # --- END REPLACED CALCULATION ---
 
         scores = similarity_scores[0]
         top_matches_indices = scores.argsort()[-5:][::-1]
