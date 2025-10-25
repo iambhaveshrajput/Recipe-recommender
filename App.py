@@ -23,9 +23,9 @@ def download_gdrive_file(url):
         print(f"Error downloading {url}: {e}")
         return None
 
-VECTORS_URL = "PASTE_YOUR_recipe_vectors.pkl_LINK_HERE"
-COLUMNS_URL = "PASTE_YOUR_ingredient_columns.pkl_LINK_HERE"
-INFO_URL = "PASTE_YOUR_recipes_info.csv_LINK_HERE"
+VECTORS_URL = "https://drive.google.com/file/d/1DKHgVycWj9KMsKfBpMf-rzu_hEtS41fV/view?usp=drivesdk"
+COLUMNS_URL = "https://drive.google.com/file/d/1HtQai-oIxKkSDLJx6C853Ww5ZPcSXGIp/view?usp=drivesdk"
+INFO_URL = "https://drive.google.com/file/d/1UB_mcEPOY79KcLughKTo5EJEjuFPcrB4/view?usp=drivesdk"
 
 app = Flask(__name__)
 recipe_vectors = None
