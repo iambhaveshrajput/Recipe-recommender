@@ -32,7 +32,6 @@ recipe_vectors = None
 ingredient_map = None
 df_info = None
 
-@app.before_first_request
 def load_models():
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
     
@@ -58,8 +57,8 @@ def load_models():
         
     except Exception as e:
         print(f"--- FATAL ERROR: Could not load ML models --- {e}")
-        # In a real app, you might want to stop the server or return errors
-        
+
+load_models()        
 lemmatizer = WordNetLemmatizer()
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
