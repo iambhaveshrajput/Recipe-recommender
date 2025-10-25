@@ -10,9 +10,14 @@ import os
 import requests  # We need this
 import io
 import nltk
+import logging # Import the logging library
 
 # --- 1. Initialize App ---
 app = Flask(__name__)
+# Set up better logging
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app.logger.handlers = gunicorn_logger.handlers
+app.logger.setLevel(logging.INFO)
 
 # --- 2. Define Global Variables ---
 recipe_vectors = None
@@ -29,7 +34,7 @@ def download_file(url):
         response.raise_for_status() # Will error if download fails
         return io.BytesIO(response.content)
     except Exception as e:
-        print(f"Error downloading {url}: {e}")
+        app.logger.error(f"Error downloading {url}: {e}")
         return None
 
 # --- 4. Model Loading Function ---
@@ -44,15 +49,15 @@ def load_models():
 
     try:
         # --- NLTK Fix for Render ---
-        print("Downloading NLTK data to /tmp/nltk_data...")
+        app.logger.info("Downloading NLTK data to /tmp/nltk_data...")
         nltk.download('wordnet', download_dir='/tmp/nltk_data')
         nltk.download('omw-1.4', download_dir='/tmp/nltk_data')
         nltk.data.path.append('/tmp/nltk_data')
-        print("NLTK data downloaded.")
+        app.logger.info("NLTK data downloaded.")
         # ---------------------------
         
         # --- Download all 3 files from Hugging Face ---
-        print("Downloading all 3 data files from Hugging Face...")
+        app.logger.info("Downloading all 3 data files from Hugging Face...")
         vectors_file = download_file(VECTORS_URL)
         columns_file = download_file(COLUMNS_URL)
         info_file    = download_file(INFO_URL)
@@ -60,7 +65,7 @@ def load_models():
         if not all([vectors_file, columns_file, info_file]):
             raise FileNotFoundError("Failed to download one or more files from Hugging Face.")
         
-        print("All files downloaded. Loading models...")
+        app.logger.info("All files downloaded. Loading models...")
         recipe_vectors     = joblib.load(vectors_file)
         ingredient_columns = joblib.load(columns_file)
         df_info            = pd.read_csv(info_file).fillna('N/A')
@@ -68,14 +73,14 @@ def load_models():
         # Create the quick-lookup map
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
         
-        print("All ML/data files loaded successfully!")
-        print(f"Recipe vectors shape: {recipe_vectors.shape}")
-        print(f"Recipe info shape: {df_info.shape}")
+        app.logger.info("All ML/data files loaded successfully!")
+        app.logger.info(f"Recipe vectors shape: {recipe_vectors.shape}")
+        app.logger.info(f"Recipe info shape: {df_info.shape}")
         
     except Exception as e:
-        print(f"--- FATAL ERROR: Could not load ML models ---")
-        print(e)
+        app.logger.error(f"--- FATAL ERROR: Could not load ML models --- {e}")
             
+# --- 5. Input Cleaning Function ---
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
     'tsp', 'teaspoon', 'teaspoons', 'g', 'kg', 'ml', 'l', 'lb', 'lbs',
@@ -83,21 +88,20 @@ stop_words = set([
 ])
 
 def clean_user_input(text):
-    lemmatizer = WordNetLemmatizer()
+    lemmatizer = WordNetLemmatizer()  # <-- This fix is included
     text = text.lower()
-    text = re.sub(r'[^a-z\s,]', '', text) # Remove punctuation/numbers
+    text = re.sub(r'[^a-z\s,]', '', text) 
     words = re.split(r'[\s,]+', text)
     cleaned_words = []
     for word in words:
         if word and word not in stop_words:
-            lemmatized_word = lemmatizer.lemmatize(word) # 'tomatoes' -> 'tomato'
+            lemmatized_word = lemmatizer.lemmatize(word) 
             if lemmatized_word not in stop_words and len(lemmatized_word) > 2:
                 cleaned_words.append(lemmatized_word)
     return cleaned_words
 
 # --- 6. CALL THE MODEL LOADER ---
-# Gunicorn runs this code when it imports the file.
-print("Starting app, calling load_models()...")
+app.logger.info("Starting app, calling load_models()...")
 load_models()
 
 # --- 7. Define App Routes (Webpages) ---
@@ -108,33 +112,48 @@ def home():
 
 @app.route('/get_recipes', methods=['POST'])
 def get_recipes_api():
+    app.logger.info("Received request for /get_recipes") # New log
     if recipe_vectors is None or ingredient_map is None:
+        app.logger.error("Models are not loaded, returning 503 error.")
         return jsonify({"error": "Models are not loaded yet. Please try again in a moment."}), 503
     try:
         data = request.json
         user_ingredients_str = data.get('ingredients', '')
+        app.logger.info(f"Input ingredients: {user_ingredients_str}") # New log
+        
         user_words = clean_user_input(user_ingredients_str)
+        app.logger.info(f"Cleaned words: {user_words}") # New log
+        
         user_vector = np.zeros((1, len(ingredient_map)))
+        
         found_ingredients = []
         for word in user_words:
             if word in ingredient_map:
                 index = ingredient_map[word]
                 user_vector[0, index] = 1.0
                 found_ingredients.append(word)
+        
+        app.logger.info(f"Found ingredients in database: {found_ingredients}") # New log
         if not found_ingredients:
             return jsonify([]) 
+
         similarity_scores = cosine_similarity(user_vector, recipe_vectors)
         scores = similarity_scores[0]
         top_matches_indices = scores.argsort()[-5:][::-1]
+
         results = []
         for index in top_matches_indices:
             if scores[index] > 0.05: 
                 recipe_info = df_info.iloc[index].to_dict()
                 recipe_info['score'] = float(scores[index])
                 results.append(recipe_info)
+        
+        app.logger.info(f"Returning {len(results)} recipes.") # New log
         return jsonify(results)
+        
     except Exception as e:
-        print(f"Error in get_recipes_api: {e}")
+        # This will now DEFINITELY show up in the logs
+        app.logger.error(f"--- CRASH IN get_recipes_api ---: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
 # --- 8. Run the App (for local testing only) ---
