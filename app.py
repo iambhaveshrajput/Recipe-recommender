@@ -12,19 +12,16 @@ import io
 import nltk
 import logging 
 
-# --- 1. Initialize App ---
 app = Flask(__name__)
 gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(logging.INFO)
 
-# --- 2. Define Global Variables ---
-recipe_vectors_norm = None # Renamed
+recipe_vectors_norm = None 
 ingredient_map = None
 df_info = None
 ingredient_columns = None
 
-# --- 3. Downloader Function ---
 def download_file(url):
     try:
         session = requests.Session()
@@ -35,17 +32,14 @@ def download_file(url):
         app.logger.error(f"Error downloading {url}: {e}")
         return None
 
-# --- 4. Model Loading Function ---
 def load_models():
     global recipe_vectors_norm, ingredient_map, df_info, ingredient_columns
     
-    # --- Your 3 Hugging Face URLs are included ---
     VECTORS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipe_vectors_norm.pkl"
     COLUMNS_URL = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/ingredient_columns.pkl"
     INFO_URL    = "https://huggingface.co/Bhaveshrajput/Recipe-recommender/resolve/main/recipes_info.csv"
 
     try:
-        # --- NLTK Fix for Render ---
         app.logger.info("Downloading NLTK data to /tmp/nltk_data...")
         nltk.download('wordnet', download_dir='/tmp/nltk_data')
         nltk.download('omw-1.4', download_dir='/tmp/nltk_data')
@@ -61,7 +55,6 @@ def load_models():
             raise FileNotFoundError("Failed to download one or more files from Hugging Face.")
         
         app.logger.info("All files downloaded. Loading models...")
-        # Load the new pre-normalized file
         recipe_vectors_norm = joblib.load(vectors_file) 
         ingredient_columns  = joblib.load(columns_file)
         df_info             = pd.read_csv(info_file).fillna('N/A')
@@ -75,7 +68,6 @@ def load_models():
     except Exception as e:
         app.logger.error(f"--- FATAL ERROR: Could not load ML models --- {e}")
             
-# --- 5. Input Cleaning Function ---
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
     'tsp', 'teaspoon', 'teaspoons', 'g', 'kg', 'ml', 'l', 'lb', 'lbs',
@@ -95,11 +87,9 @@ def clean_user_input(text):
                 cleaned_words.append(lemmatized_word)
     return cleaned_words
 
-# --- 6. CALL THE MODEL LOADER ---
 app.logger.info("Starting app, calling load_models()...")
 load_models()
 
-# --- 7. Define App Routes (Webpages) ---
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -130,16 +120,14 @@ def get_recipes_api():
         if not found_ingredients:
             return jsonify([]) 
 
-        # --- FINAL, MEMORY-EFFICIENT CALCULATION ---
         app.logger.info("--- Normalizing user_vector... ---")
         user_vector_norm = normalize(user_vector)
         
         app.logger.info("--- Calculating dot product... ---")
-        # No more crashing! We just multiply the user vector by the pre-normalized vectors
+    
         similarity_scores = np.dot(user_vector_norm, recipe_vectors_norm.T) 
         
         app.logger.info("--- Calculation FINISHED. ---")
-        # --- END CALCULATION ---
 
         scores = similarity_scores[0]
         top_matches_indices = scores.argsort()[-5:][::-1]
@@ -158,7 +146,6 @@ def get_recipes_api():
         app.logger.error(f"--- CRASH IN get_recipes_api ---: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
-# --- 8. NEW ENDPOINT (Using TheMealDB) ---
 
 @app.route('/get_procedure', methods=['POST'])
 def get_procedure_api():
@@ -169,8 +156,6 @@ def get_procedure_api():
         if not recipe_title:
             return jsonify({"error": "No title provided"}), 400
 
-        # 1. Call TheMealDB API to find the recipe
-        # This API is 100% free and needs no key
         search_url = f"https://www.themealdb.com/api/json/v1/1/search.php?s={recipe_title}"
         
         response = requests.get(search_url)
@@ -182,14 +167,12 @@ def get_procedure_api():
             app.logger.error(f"TheMealDB found no results for title: {recipe_title}")
             return jsonify({"instructions": "Sorry, procedure not found."})
 
-        # 2. Extract the instructions and image
-        recipe = search_results['meals'][0] # Get the first match
+        recipe = search_results['meals'][0]
         instructions = recipe.get('strInstructions', 'No instructions provided.')
         image_url = recipe.get('strMealThumb', '')
         
         app.logger.info("Successfully fetched procedure from TheMealDB.")
         
-        # 3. Send the instructions back to the frontend
         return jsonify({
             "instructions": instructions,
             "image_url": image_url
@@ -200,7 +183,6 @@ def get_procedure_api():
         return jsonify({"error": "An internal server error occurred."}), 500
 
 
-# --- 9. Run the App (for local testing only) ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
