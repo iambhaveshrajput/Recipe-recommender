@@ -32,33 +32,43 @@ recipe_vectors = None
 ingredient_map = None
 df_info = None
 
+# --- 3. Initialize App and Load Models ---
+app = Flask(__name__)
+recipe_vectors = None
+ingredient_map = None
+df_info = None
+
+# This function will load the models
 def load_models():
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
-    
+
+    # This code runs ONCE when Gunicorn starts the app.
     try:
         print("Downloading ML files from Google Drive...")
-        
+
         vectors_file = download_gdrive_file(VECTORS_URL)
         columns_file = download_gdrive_file(COLUMNS_URL)
         info_file = download_gdrive_file(INFO_URL)
-        
+
         if not all([vectors_file, columns_file, info_file]):
             raise FileNotFoundError("Failed to download one or more files from GDrive.")
 
         recipe_vectors = joblib.load(vectors_file)
         ingredient_columns = joblib.load(columns_file)
         df_info = pd.read_csv(info_file).fillna('N/A')
-        
+
+        # Create the quick-lookup map
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
-        
+
         print("All ML/data files loaded successfully!")
         print(f"Recipe vectors shape: {recipe_vectors.shape}")
         print(f"Recipe info shape: {df_info.shape}")
-        
+
     except Exception as e:
         print(f"--- FATAL ERROR: Could not load ML models --- {e}")
 
-load_models()        
+load_models()
+        
 lemmatizer = WordNetLemmatizer()
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
