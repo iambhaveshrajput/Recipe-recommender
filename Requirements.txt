@@ -1,0 +1,8 @@
+flask
+gunicorn
+joblib
+pandas
+scikit-learn
+nltk
+numpy
+requests
