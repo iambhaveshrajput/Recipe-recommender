@@ -76,8 +76,6 @@ def load_models():
         print(f"--- FATAL ERROR: Could not load ML models ---")
         print(e)
             
-# --- 5. Input Cleaning Function ---
-lemmatizer = WordNetLemmatizer()
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
     'tsp', 'teaspoon', 'teaspoons', 'g', 'kg', 'ml', 'l', 'lb', 'lbs',
@@ -85,6 +83,7 @@ stop_words = set([
 ])
 
 def clean_user_input(text):
+    lemmatizer = WordNetLemmatizer()
     text = text.lower()
     text = re.sub(r'[^a-z\s,]', '', text) # Remove punctuation/numbers
     words = re.split(r'[\s,]+', text)
