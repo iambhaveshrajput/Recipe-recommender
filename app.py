@@ -9,41 +9,50 @@ import re
 import os
 import requests
 import io
-import nltk 
+import nltk
 
+# --- 1. Initialize App ---
 app = Flask(__name__)
 
+# --- 2. Define Global Variables ---
+# We set them to None. They will be loaded by our function.
 recipe_vectors = None
 ingredient_map = None
 df_info = None
 ingredient_columns = None
 
+# --- 3. GDrive Downloader Function ---
 def download_gdrive_file(url):
     try:
         file_id = url.split('/d/')[1].split('/')[0]
         download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         session = requests.Session()
         response = session.get(download_url, stream=True)
-        response.raise_for_status() 
+        response.raise_for_status() # Will error if download fails
         return io.BytesIO(response.content)
     except Exception as e:
         print(f"Error downloading {url}: {e}")
         return None
 
+# --- 4. Model Loading Function ---
 def load_models():
+    # Tell this function to modify the GLOBAL variables
     global recipe_vectors, ingredient_map, df_info, ingredient_columns
     
+    # --- !! PASTE YOUR 3 GOOGLE DRIVE LINKS HERE !! ---
     VECTORS_URL = "https://drive.google.com/file/d/1DKHgVycWj9KMsKfBpMf-rzu_hEtS41fV/view?usp=drivesdk"
     COLUMNS_URL = "https://drive.google.com/file/d/1HtQai-oIxKkSDLJx6C853Ww5ZPcSXGIp/view?usp=drivesdk"
     INFO_URL = "https://drive.google.com/file/d/1UB_mcEPOY79KcLughKTo5EJEjuFPcrB4/view?usp=drivesdk"
 
     try:
+        # --- NLTK Fix for Render ---
         print("Downloading NLTK data to /tmp/nltk_data...")
         nltk.download('wordnet', download_dir='/tmp/nltk_data')
         nltk.download('omw-1.4', download_dir='/tmp/nltk_data')
         nltk.data.path.append('/tmp/nltk_data')
         print("NLTK data downloaded.")
-
+        # ---------------------------
+        
         print("Downloading ML files from Google Drive...")
         
         vectors_file = download_gdrive_file(VECTORS_URL)
@@ -58,6 +67,7 @@ def load_models():
         ingredient_columns = joblib.load(columns_file)
         df_info = pd.read_csv(info_file).fillna('N/A')
         
+        # Create the quick-lookup map
         ingredient_map = {name: i for i, name in enumerate(ingredient_columns)}
         
         print("All ML/data files loaded successfully!")
@@ -68,6 +78,7 @@ def load_models():
         print(f"--- FATAL ERROR: Could not load ML models ---")
         print(e)
             
+# --- 5. Input Cleaning Function ---
 lemmatizer = WordNetLemmatizer()
 stop_words = set([
     'cup', 'cups', 'oz', 'ounce', 'ounces', 'tbsp', 'tablespoon', 'tablespoons',
@@ -77,15 +88,22 @@ stop_words = set([
 
 def clean_user_input(text):
     text = text.lower()
-    text = re.sub(r'[^a-z\s,]', '', text) 
+    text = re.sub(r'[^a-z\s,]', '', text) # Remove punctuation/numbers
     words = re.split(r'[\s,]+', text)
     cleaned_words = []
     for word in words:
         if word and word not in stop_words:
-            lemmatized_word = lemmatizer.lemmatize(word) 
+            lemmatized_word = lemmatizer.lemmatize(word) # 'tomatoes' -> 'tomato'
             if lemmatized_word not in stop_words and len(lemmatized_word) > 2:
                 cleaned_words.append(lemmatized_word)
     return cleaned_words
+
+# --- 6. CALL THE MODEL LOADER ---
+# Gunicorn runs this code when it imports the file.
+print("Starting app, calling load_models()...")
+load_models()
+
+# --- 7. Define App Routes (Webpages) ---
 
 @app.route('/')
 def home():
@@ -93,6 +111,7 @@ def home():
 
 @app.route('/get_recipes', methods=['POST'])
 def get_recipes_api():
+    # Check if models are loaded
     if recipe_vectors is None or ingredient_map is None:
         return jsonify({"error": "Models are not loaded yet. Please try again in a moment."}), 503
         
@@ -132,7 +151,8 @@ def get_recipes_api():
         print(f"Error in get_recipes_api: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
+# --- 8. Run the App (for local testing only) ---
 if __name__ == '__main__':
-    load_models()
+    # This block is NOT run by Gunicorn, only when you run "python app.py"
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
